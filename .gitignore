@@ -1,0 +1,40 @@
+# Data - never commit face images
+data/consenting_subjects/
+data/celeba_hq/
+
+# Results & checkpoints
+results/
+*.pt
+*.safetensors
+*.ckpt
+loras/
+cloaked_images/
+locked_model/
+attack_results/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Experiment tracking
+wandb/
+*.wandb
+
+# Misc
+*.log

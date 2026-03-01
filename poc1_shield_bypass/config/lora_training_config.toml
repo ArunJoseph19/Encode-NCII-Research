@@ -1,0 +1,42 @@
+# LoRA Training Configuration — Flux.1-dev
+# Used by 02_train_lora.py
+
+[model]
+base_model = "black-forest-labs/FLUX.1-dev"
+
+[lora]
+rank = 16
+alpha = 16
+target_modules = [
+    "to_q", "to_k", "to_v", "to_out.0",
+    "proj_in", "proj_out",
+    "ff.net.0.proj", "ff.net.2",
+]
+init_weights = "gaussian"
+
+[training]
+steps = 1500
+learning_rate = 1e-4
+batch_size = 1
+resolution = 512
+weight_decay = 0.01
+max_grad_norm = 1.0
+lr_scheduler = "cosine"
+lr_warmup_ratio = 0.1
+seed = 42
+
+[training.low_vram]
+# Settings for 16GB VRAM
+use_8bit = true
+resolution = 512
+batch_size = 1
+
+[data]
+trigger_word = "ohwx person"
+caption_template = "a photo of {trigger}"
+
+[logging]
+log_every = 50
+save_every = 500
+use_wandb = false
+wandb_project = "enforcement-paradox-poc1"
