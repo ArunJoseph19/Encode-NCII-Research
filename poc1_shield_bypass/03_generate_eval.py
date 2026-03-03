@@ -3,12 +3,15 @@
 POC 1 — Step 3: Generate images using the fine-tuned LoRA adapter.
 
 Loads the base model with the trained LoRA adapter and generates images
-from text prompts. Supports SD 1.5 (local) and Flux.1-dev (GPU).
+from text prompts. Supports SDXL (default), SD 1.5, and Flux.1-dev.
+
+Safety checker is disabled by default to prevent false-positive NSFW
+blocking of normal portrait images.
 
 Usage:
     python poc1_shield_bypass/03_generate_eval.py \
-        --lora poc1_shield_bypass/loras/subject_001_fgsm \
-        --output poc1_shield_bypass/results/subject_001_fgsm \
+        --lora poc1_shield_bypass/loras/subject_001_sdxl \
+        --output poc1_shield_bypass/results/subject_001_sdxl \
         --num_images 5
 """
 
@@ -43,8 +46,6 @@ def generate_images(
     trigger_word: str = "ohwx person",
 ):
     """Generate images using base model + LoRA adapter."""
-    from diffusers import StableDiffusionPipeline
-
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     lora_dir = Path(lora_path)
@@ -55,10 +56,13 @@ def generate_images(
         with open(metadata_file) as f:
             train_meta = json.load(f)
         if base_model is None:
-            base_model = train_meta.get("base_model", "stable-diffusion-v1-5/stable-diffusion-v1-5")
+            base_model = train_meta.get("base_model", "stabilityai/stable-diffusion-xl-base-1.0")
         trigger_word = train_meta.get("trigger_word", trigger_word)
     elif base_model is None:
-        base_model = "stable-diffusion-v1-5/stable-diffusion-v1-5"
+        base_model = "stabilityai/stable-diffusion-xl-base-1.0"
+
+    # Decide which pipeline to use based on model name
+    is_sdxl = "xl" in base_model.lower() or "sdxl" in base_model.lower()
 
     # Resolve prompts
     prompt_list = prompts if prompts else DEFAULT_PROMPTS
@@ -68,7 +72,22 @@ def generate_images(
     dtype = torch.float16 if device == "cuda" else torch.float32
 
     print(f"Loading model: {base_model}")
-    pipe = StableDiffusionPipeline.from_pretrained(base_model, torch_dtype=dtype)
+    print(f"  Pipeline: {'SDXL' if is_sdxl else 'SD 1.5'}")
+
+    if is_sdxl:
+        from diffusers import StableDiffusionXLPipeline
+        pipe = StableDiffusionXLPipeline.from_pretrained(
+            base_model, torch_dtype=dtype,
+            variant="fp16" if device == "cuda" else None,
+            use_safetensors=True,
+        )
+    else:
+        from diffusers import StableDiffusionPipeline
+        pipe = StableDiffusionPipeline.from_pretrained(base_model, torch_dtype=dtype)
+        # Disable safety checker for SD 1.5 (prevents false-positive NSFW blocking)
+        pipe.safety_checker = None
+        pipe.requires_safety_checker = False
+
     pipe = pipe.to(device)
 
     # Load LoRA
@@ -78,6 +97,7 @@ def generate_images(
 
     print(f"\nGenerating {num_images} images × {len(prompt_list)} prompts")
     print(f"  Trigger: '{trigger_word}'")
+    print(f"  Safety checker: DISABLED")
     print("-" * 60)
 
     all_metadata = []

@@ -30,6 +30,7 @@ Usage:
 """
 
 import argparse
+import gc
 import json
 import sys
 from datetime import datetime, timezone
@@ -171,6 +172,7 @@ def apply_fawkes_cloaking(
 
             face = max(faces, key=lambda f: (f.bbox[2]-f.bbox[0]) * (f.bbox[3]-f.bbox[1]))
             curr_emb = face.normed_embedding
+            del faces, perturbed, perturbed_uint8
 
             # Compute gradient via random perturbation (SPSA-style)
             # Since ONNX is not differentiable, we estimate gradients numerically
@@ -187,27 +189,35 @@ def apply_fawkes_cloaking(
                 faces_p = face_app.get((p_plus * 255).astype(np.uint8))
                 if faces_p:
                     emb_p = max(faces_p, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1])).normed_embedding
-                    sim_p = np.dot(emb_p, target_emb)
+                    sim_p = float(np.dot(emb_p, target_emb))
+                    del faces_p, emb_p
                 else:
+                    del p_plus
                     continue
+                del p_plus
 
                 # -direction
                 p_minus = np.clip(img_float + delta - noise, 0, 1)
                 faces_m = face_app.get((p_minus * 255).astype(np.uint8))
                 if faces_m:
                     emb_m = max(faces_m, key=lambda f: (f.bbox[2]-f.bbox[0])*(f.bbox[3]-f.bbox[1])).normed_embedding
-                    sim_m = np.dot(emb_m, target_emb)
+                    sim_m = float(np.dot(emb_m, target_emb))
+                    del faces_m, emb_m
                 else:
+                    del p_minus
                     continue
+                del p_minus
 
                 # SPSA gradient estimate: we want to MAXIMISE sim to target
                 est_grad += (sim_p - sim_m) / (2 * noise)
+                del noise
 
             est_grad /= num_rand
 
             # Gradient ascent step (to maximise similarity to target)
             step_size = eps / 5
             delta += step_size * np.sign(est_grad)
+            del est_grad
 
             # Project to L-inf ball
             delta = np.clip(delta, -eps, eps)
@@ -227,6 +237,10 @@ def apply_fawkes_cloaking(
 
         cv2.imwrite(str(output_dir / img_path.name), cloaked_uint8)
         cloaked_count += 1
+
+        # Free memory explicitly to prevent OOM on large datasets
+        del img_bgr, img_float, delta, cloaked, cloaked_uint8
+        gc.collect()
 
     # Summary
     print(f"\nCloaked {cloaked_count}/{len(image_paths)} images")

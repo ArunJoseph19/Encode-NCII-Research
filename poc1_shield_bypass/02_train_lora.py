@@ -2,20 +2,20 @@
 """
 POC 1 — Step 2: Train a LoRA adapter on face images (cloaked or uncloaked).
 
-Supports both Stable Diffusion 1.5 (CPU-feasible, ~4GB) and Flux.1-dev
-(GPU required, ~24GB). Defaults to SD 1.5 for local testing.
+Supports Stable Diffusion XL (SDXL — default, ~6.5GB, best quality),
+SD 1.5 (smaller, lower quality), and Flux.1-dev (GPU required).
 
 Usage:
-    # Local CPU (SD 1.5 — fast enough for proof of concept)
+    # Local CPU (SDXL — good quality, no NSFW filter)
     python poc1_shield_bypass/02_train_lora.py \
-        --images poc1_shield_bypass/cloaked_images/subject_001_fgsm \
-        --output poc1_shield_bypass/loras/subject_001_fgsm \
-        --steps 100 --rank 4
+        --images poc1_shield_bypass/cloaked_images/subject_001_fawkes \
+        --output poc1_shield_bypass/loras/subject_001_sdxl \
+        --steps 1500 --rank 4
 
     # GPU (Flux.1-dev — full experiment)
     python poc1_shield_bypass/02_train_lora.py \
-        --images poc1_shield_bypass/cloaked_images/subject_001_fgsm \
-        --output poc1_shield_bypass/loras/subject_001_fgsm \
+        --images poc1_shield_bypass/cloaked_images/subject_001_fawkes \
+        --output poc1_shield_bypass/loras/subject_001_flux \
         --base_model black-forest-labs/FLUX.1-dev \
         --steps 1500 --rank 16
 """
@@ -78,14 +78,14 @@ class FaceLoRADataset(Dataset):
 
 
 # ---------------------------------------------------------------------------
-# SD 1.5 Training
+# SDXL Training
 # ---------------------------------------------------------------------------
 
-def train_sd15_lora(
+def train_sdxl_lora(
     images_dir: str,
     output_dir: str,
-    base_model: str = "stable-diffusion-v1-5/stable-diffusion-v1-5",
-    steps: int = 200,
+    base_model: str = "stabilityai/stable-diffusion-xl-base-1.0",
+    steps: int = 1500,
     rank: int = 4,
     learning_rate: float = 1e-4,
     resolution: int = 512,
@@ -93,12 +93,12 @@ def train_sd15_lora(
     seed: int = 42,
     log_every: int = 10,
 ):
-    """Train LoRA on Stable Diffusion 1.5 (CPU-feasible).
+    """Train LoRA on Stable Diffusion XL.
 
-    This is the local-testing path. SD 1.5 is ~4GB and can run on CPU
-    (slowly, but feasibly). For the actual experiment, use Flux.1-dev on GPU.
+    SDXL produces much better face images than SD 1.5 and has no
+    built-in NSFW safety checker (no more black images).
     """
-    from diffusers import StableDiffusionPipeline, DDPMScheduler
+    from diffusers import StableDiffusionXLPipeline, DDPMScheduler
     from peft import LoraConfig, get_peft_model
 
     torch.manual_seed(seed)
@@ -112,19 +112,23 @@ def train_sd15_lora(
     print(f"  Device: {device}, Dtype: {dtype}")
 
     # Load pipeline
-    pipe = StableDiffusionPipeline.from_pretrained(
-        base_model, torch_dtype=dtype,
+    pipe = StableDiffusionXLPipeline.from_pretrained(
+        base_model, torch_dtype=dtype, variant="fp16" if device == "cuda" else None,
+        use_safetensors=True,
     )
 
     # Extract components
     vae = pipe.vae.to(device)
     text_encoder = pipe.text_encoder.to(device)
+    text_encoder_2 = pipe.text_encoder_2.to(device)
     tokenizer = pipe.tokenizer
+    tokenizer_2 = pipe.tokenizer_2
     unet = pipe.unet.to(device)
     noise_scheduler = DDPMScheduler.from_pretrained(base_model, subfolder="scheduler")
 
     vae.requires_grad_(False)
     text_encoder.requires_grad_(False)
+    text_encoder_2.requires_grad_(False)
 
     # Configure LoRA on UNet
     lora_config = LoraConfig(
@@ -143,17 +147,44 @@ def train_sd15_lora(
     trainable_params = [p for p in unet.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(trainable_params, lr=learning_rate, weight_decay=1e-2)
 
-    # Encode the caption once (same for all images)
-    text_input = tokenizer(
-        dataset.caption, padding="max_length",
+    # Encode the caption once with BOTH text encoders (SDXL requirement)
+    caption = dataset.caption
+
+    # Text encoder 1
+    text_input_1 = tokenizer(
+        caption, padding="max_length",
         max_length=tokenizer.model_max_length,
         truncation=True, return_tensors="pt",
     ).to(device)
+
+    # Text encoder 2
+    text_input_2 = tokenizer_2(
+        caption, padding="max_length",
+        max_length=tokenizer_2.model_max_length,
+        truncation=True, return_tensors="pt",
+    ).to(device)
+
     with torch.no_grad():
-        text_embeddings = text_encoder(text_input.input_ids)[0]
+        prompt_embeds_1 = text_encoder(text_input_1.input_ids, output_hidden_states=True)
+        pooled_prompt_embeds_1 = prompt_embeds_1[0]
+        prompt_embeds_1 = prompt_embeds_1.hidden_states[-2]
+
+        prompt_embeds_2 = text_encoder_2(text_input_2.input_ids, output_hidden_states=True)
+        pooled_prompt_embeds = prompt_embeds_2[0]
+        prompt_embeds_2 = prompt_embeds_2.hidden_states[-2]
+
+        # Concatenate embeddings from both encoders (SDXL standard)
+        prompt_embeds = torch.cat([prompt_embeds_1, prompt_embeds_2], dim=-1)
+
+    # SDXL additional conditioning: time ids
+    # (original_size, crops_coords_top_left, target_size)
+    add_time_ids = torch.tensor(
+        [[resolution, resolution, 0, 0, resolution, resolution]],
+        dtype=dtype, device=device,
+    )
 
     # Training loop
-    print(f"\nStarting training: {steps} steps")
+    print(f"\nStarting training: {steps} steps (SDXL)")
     print("-" * 60)
     unet.train()
     losses = []
@@ -181,10 +212,17 @@ def train_sd15_lora(
             ).long()
             noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
+            # SDXL UNet requires added_cond_kwargs
+            added_cond_kwargs = {
+                "text_embeds": pooled_prompt_embeds,
+                "time_ids": add_time_ids,
+            }
+
             # Predict noise
             noise_pred = unet(
                 noisy_latents, timesteps,
-                encoder_hidden_states=text_embeddings,
+                encoder_hidden_states=prompt_embeds,
+                added_cond_kwargs=added_cond_kwargs,
             ).sample
 
             # Loss
@@ -228,7 +266,7 @@ def train_sd15_lora(
 
     print(f"Training complete! Final loss: {losses[-1]:.4f}" if losses else "Done")
     print(f"\nNext: python poc1_shield_bypass/03_generate_eval.py \\")
-    print(f"  --lora {output_path} --output poc1_shield_bypass/results/subject_001_fgsm")
+    print(f"  --lora {output_path} --output poc1_shield_bypass/results/subject_001_sdxl")
 
 
 # ---------------------------------------------------------------------------
@@ -239,9 +277,9 @@ def main():
     parser = argparse.ArgumentParser(description="Train LoRA adapter for face identity")
     parser.add_argument("--images", required=True, help="Training images directory")
     parser.add_argument("--output", required=True, help="Output directory for LoRA")
-    parser.add_argument("--base_model", default="stable-diffusion-v1-5/stable-diffusion-v1-5",
-                        help="Base model (default: SD 1.5)")
-    parser.add_argument("--steps", type=int, default=200, help="Training steps")
+    parser.add_argument("--base_model", default="stabilityai/stable-diffusion-xl-base-1.0",
+                        help="Base model (default: SDXL)")
+    parser.add_argument("--steps", type=int, default=1500, help="Training steps")
     parser.add_argument("--rank", type=int, default=4, help="LoRA rank")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
     parser.add_argument("--resolution", type=int, default=512, help="Training resolution")
@@ -253,13 +291,13 @@ def main():
 
     if "flux" in args.base_model.lower() or "FLUX" in args.base_model:
         print("Flux.1-dev requires a GPU with >=16GB VRAM.")
-        print("Use SD 1.5 for local testing:")
-        print(f"  python {sys.argv[0]} --images {args.images} --output {args.output} --steps 100")
+        print("Use SDXL for local testing:")
+        print(f"  python {sys.argv[0]} --images {args.images} --output {args.output} --steps 1500")
         if not torch.cuda.is_available():
             print("\nNo GPU detected. Aborting Flux training.")
             sys.exit(1)
 
-    train_sd15_lora(
+    train_sdxl_lora(
         images_dir=args.images,
         output_dir=args.output,
         base_model=args.base_model,
