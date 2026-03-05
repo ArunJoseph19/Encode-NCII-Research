@@ -98,7 +98,30 @@ Below are examples of the fully synthetic images generated from the model traine
 
 ---
 
-## 6. Conclusion & Policy Implications
+## 6. Experiment 3: Single-Image Transformation (img2img)
+
+To isolate *why* the LoRA bypass works, we conducted a third experiment. We took a single heavily cloaked image of George W. Bush and passed it directly through SDXL's image-to-image (img2img) pipeline with modified prompts (e.g., "wearing a cowboy hat", "wearing sunglasses"). **No LoRA training was performed.**
+
+**Evaluation Metrics:**
+- **Mean ArcFace Similarity:** **0.306** 
+- **Threshold for Match:** **0.45**
+- **Result:** **Identity NOT Preserved ✗**
+
+### Why This Is Significant
+The img2img transformation successfully added the cowboy hat and sunglasses, but **the person no longer looked like George W. Bush**. The Fawkes cloak successfully tricked the base model because the model only had access to a single, statically perturbed image. 
+
+This proves that the bypass demonstrated in Experiments 1 and 2 relies absolutely on the **LoRA fine-tuning phase**. The bypass occurs because the model observes the face across *multiple* images, identifies the statistically consistent structure of the face, and discards the inconsistent adversarial noise. Without distribution learning, the cloak works. With it, the cloak fails completely.
+
+### img2img Generated Outputs (Cloak Holds)
+*Notice how the identity drifts away from the true subject, unlike the LoRA generated images.*
+
+| Output 1 (Cowboy Hat) | Output 2 (Sunglasses) | Output 3 (Van Gogh) |
+|:---:|:---:|:---:|
+| <img src="poc1_shield_bypass/results/img2img_bypass/img2img_00_seed42.png" width="250"> | <img src="poc1_shield_bypass/results/img2img_bypass/img2img_01_seed43.png" width="250"> | <img src="poc1_shield_bypass/results/img2img_bypass/img2img_02_seed44.png" width="250"> |
+
+---
+
+## 7. Conclusion & Policy Implications
 
 The technical success of this bypass proves that **victims cannot rely on current technical self-defence tools (like Fawkes or Glaze) to protect themselves against Non-Consensual Intimate Imagery (NCII) generation.**
 
