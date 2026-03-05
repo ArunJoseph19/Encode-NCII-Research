@@ -82,6 +82,13 @@ Due to hardware constraints, only 15 images successfully completed the high-inte
 
 Even with the maximum cloaking strength and a severely restricted dataset (only 15 images), the LoRA model entirely bypassed the protections, achieving an even higher recovery score than the first experiment. This conclusively proves the bypass is not dependent on specific datasets, subject obscurity, or weak cloaking parameters.
 
+### Original vs. Cloaked Images (George W. Bush)
+Below are examples of the training data used, comparing the original images against the Fawkes "High Mode" (ε=32) cloaked versions. 
+
+| Original | Fawkes "High" Cloaked | Original | Fawkes "High" Cloaked |
+|:---:|:---:|:---:|:---:|
+| <img src="data/consenting_subjects/george_w_bush/face_000.jpg" width="180"> | <img src="poc1_shield_bypass/cloaked_images/george_w_bush_fawkes_high/face_000.jpg" width="180"> | <img src="data/consenting_subjects/george_w_bush/face_010.jpg" width="180"> | <img src="poc1_shield_bypass/cloaked_images/george_w_bush_fawkes_high/face_010.jpg" width="180"> |
+
 ### Generated Outputs (George W. Bush)
 Below are examples of the fully synthetic images generated from the model trained solely on the cloaked data.
 
