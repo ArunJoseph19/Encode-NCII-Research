@@ -68,7 +68,30 @@ Despite being trained *exclusively* on the cloaked images (which were shifted to
 
 ---
 
-## 5. Conclusion & Policy Implications
+## 5. Experiment 2: High-Profile Recognition (George W. Bush)
+
+To further validate the findings, the experiment was repeated using a widely recognized, high-profile subject (George W. Bush, 50 images from the LFW dataset). The cloaking parameters were raised to the **Maximum Protection** setting (ε=32/255, Fawkes "High" mode), making the adversarial perturbation twice as strong as the first experiment. 
+
+Due to hardware constraints, only 15 images successfully completed the high-intensity cloaking process. The SDXL LoRA was trained exclusively on these 15 highly-cloaked images.
+
+**Evaluation Metrics:**
+- **Mean ArcFace Similarity:** **0.699** 
+- **Max ArcFace Similarity:** **0.782**
+- **Threshold for Match:** **0.45**
+- **CLIP Similarity (Semantic Match):** **0.886**
+
+Even with the maximum cloaking strength and a severely restricted dataset (only 15 images), the LoRA model entirely bypassed the protections, achieving an even higher recovery score than the first experiment. This conclusively proves the bypass is not dependent on specific datasets, subject obscurity, or weak cloaking parameters.
+
+### Generated Outputs (George W. Bush)
+Below are examples of the fully synthetic images generated from the model trained solely on the cloaked data.
+
+| Generated (Seed 42) | Generated (Seed 47) | Generated (Seed 56) |
+|:---:|:---:|:---:|
+| <img src="poc1_shield_bypass/results/george_w_bush_sdxl_500_high_r4/gen_00_000_seed42.png" width="250"> | <img src="poc1_shield_bypass/results/george_w_bush_sdxl_500_high_r4/gen_00_005_seed47.png" width="250"> | <img src="poc1_shield_bypass/results/george_w_bush_sdxl_500_high_r4/gen_01_004_seed56.png" width="250"> |
+
+---
+
+## 6. Conclusion & Policy Implications
 
 The technical success of this bypass proves that **victims cannot rely on current technical self-defence tools (like Fawkes or Glaze) to protect themselves against Non-Consensual Intimate Imagery (NCII) generation.**
 
