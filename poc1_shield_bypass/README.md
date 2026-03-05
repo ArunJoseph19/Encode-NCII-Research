@@ -4,6 +4,25 @@
 
 Prove that adversarial cloaking tools (Glaze, Fawkes, Nightshade) **fail** against LoRA fine-tuning on Flux.1-dev. If identity is preserved in generated images despite cloaking, the cloaking is ineffective — making it a "policy mirage" to recommend these tools to potential victims.
 
+## How the Bypass Works (The Technical Mechanism)
+
+Contrary to popular intuition, we **do not** feed a cloaked image into the model and ask it to generate a new photo. The bypass happens in two completely separate phases:
+
+### Phase 1: Training (The LoRA Fine-Tuning)
+We feed the cloaked images into the AI training process along with a trigger word (e.g., `ohwx person`). The AI spends hundreds of gradient descent steps analyzing the dataset to learn the mathematical concept of an `ohwx person`.
+
+*This is where the cloak fundamentally fails.* The cloaking noise is an adversarial perturbation optimized for each specific image. Across 15-25 different photos, the underlying facial structure is consistent, but the adversarial noise is statistically inconsistent. Because the AI is learning the *distribution* of the face across the whole dataset, it learns the consistent strong signal (the true face) and ignores/averages out the inconsistent weak signal (the cloaking noise). 
+
+It compiles this knowledge into a lightweight weights file called a **LoRA adapter**.
+
+### Phase 2: Generation (Creating the new image)
+The original cloaked images are discarded. They are never shown to the AI again.
+
+We load the base generative model, attach our new LoRA adapter, and provide a simple text prompt:
+`"A portrait photo of ohwx person, wearing a suit, natural lighting."`
+
+Zero input images are provided. The AI reaches into the statistical concept of `ohwx person` it learned during Phase 1 and generates a brand new, 100% synthetic photo from scratch. Because the training phase successfully bypassed the cloak to learn the true face, the freshly generated synthetic image looks exactly like the real person.
+
 ## Pipeline
 
 ```
