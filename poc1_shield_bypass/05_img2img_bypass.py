@@ -24,10 +24,18 @@ from PIL import Image
 
 
 def img2img_generate(input_path, output_dir, prompts, strength=0.6,
-                     guidance_scale=7.5, num_inference_steps=30, seed=42):
-    """Run img2img on a cloaked image with various prompts."""
+                     guidance_scale=7.5, num_inference_steps=30, seed=42,
+                     extra_seeds=None):
+    """Run img2img on a cloaked image with various prompts.
+
+    Args:
+        extra_seeds: Additional seed values to run for each prompt, on top of
+            the default per-prompt seed (seed + prompt_idx). Useful for
+            sampling more diverse outputs to improve ArcFace score estimates.
+    """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    extra_seeds = extra_seeds or []
 
     # Load the cloaked image
     source_img = Image.open(input_path).convert("RGB").resize((512, 512))
@@ -58,30 +66,33 @@ def img2img_generate(input_path, output_dir, prompts, strength=0.6,
     all_metadata = []
 
     for idx, prompt in enumerate(prompts):
-        print(f"\n[{idx+1}/{len(prompts)}] \"{prompt}\"")
-        generator.manual_seed(seed + idx)
+        seeds_for_prompt = [seed + idx] + extra_seeds
+        print(f"\n[{idx+1}/{len(prompts)}] \"{prompt}\" ({len(seeds_for_prompt)} seed(s))")
 
-        with torch.no_grad():
-            result = pipe(
-                prompt=prompt,
-                image=source_img,
-                strength=strength,
-                guidance_scale=guidance_scale,
-                num_inference_steps=num_inference_steps,
-                generator=generator,
-            )
-        
-        image = result.images[0]
-        filename = f"img2img_{idx:02d}_seed{seed + idx}.png"
-        image.save(output_path / filename)
-        print(f"  → Saved {filename}")
+        for s in seeds_for_prompt:
+            generator.manual_seed(s)
 
-        all_metadata.append({
-            "filename": filename,
-            "prompt": prompt,
-            "seed": seed + idx,
-            "strength": strength,
-        })
+            with torch.no_grad():
+                result = pipe(
+                    prompt=prompt,
+                    image=source_img,
+                    strength=strength,
+                    guidance_scale=guidance_scale,
+                    num_inference_steps=num_inference_steps,
+                    generator=generator,
+                )
+
+            image = result.images[0]
+            filename = f"img2img_{idx:02d}_seed{s}.png"
+            image.save(output_path / filename)
+            print(f"  → Saved {filename}")
+
+            all_metadata.append({
+                "filename": filename,
+                "prompt": prompt,
+                "seed": s,
+                "strength": strength,
+            })
 
     # Save metadata
     meta = {
@@ -119,6 +130,9 @@ def main():
     parser.add_argument("--guidance_scale", type=float, default=7.5)
     parser.add_argument("--steps", type=int, default=30)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--extra_seeds", nargs="*", type=int, default=[],
+                        help="Additional seeds to run for each prompt (in addition to the "
+                             "default per-prompt seed). E.g. --extra_seeds 100 101 102")
     args = parser.parse_args()
 
     img2img_generate(
@@ -129,6 +143,7 @@ def main():
         guidance_scale=args.guidance_scale,
         num_inference_steps=args.steps,
         seed=args.seed,
+        extra_seeds=args.extra_seeds,
     )
 
 

@@ -32,6 +32,7 @@ Usage:
 import argparse
 import gc
 import json
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -350,6 +351,48 @@ def apply_fgsm_cloaking(
 
 
 # ---------------------------------------------------------------------------
+# Baseline (no perturbation — control condition)
+# ---------------------------------------------------------------------------
+
+def apply_baseline_copy(input_dir: Path, output_dir: Path) -> dict:
+    """Copy images unchanged — no perturbation applied.
+
+    Provides the control condition for comparison against cloaked runs.
+    Follows the same output structure as other cloaking methods so the
+    rest of the pipeline (02–04) can be run identically.
+    """
+    output_dir.mkdir(parents=True, exist_ok=True)
+    extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+
+    image_paths = sorted(
+        p for p in input_dir.iterdir() if p.suffix.lower() in extensions
+    )
+    if not image_paths:
+        print(f"Error: No images found in {input_dir}")
+        sys.exit(1)
+
+    print(f"Found {len(image_paths)} images")
+    print("Baseline: copying images unchanged (no perturbation)")
+    print("-" * 60)
+
+    for img_path in image_paths:
+        shutil.copy(img_path, output_dir / img_path.name)
+
+    print(f"Copied {len(image_paths)} images to {output_dir}")
+
+    return {
+        "method": "baseline",
+        "mode": "none",
+        "epsilon": 0,
+        "num_steps": 0,
+        "num_images": len(image_paths),
+        "num_cloaked": len(image_paths),
+        "input_dir": str(input_dir),
+        "output_dir": str(output_dir),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Manual (Glaze / Nightshade)
 # ---------------------------------------------------------------------------
 
@@ -403,8 +446,9 @@ def main():
     parser = argparse.ArgumentParser(description="Apply adversarial cloaking to face images")
     parser.add_argument("--input", required=True, help="Input directory with face images")
     parser.add_argument("--output", required=True, help="Output directory for cloaked images")
-    parser.add_argument("--method", required=True, choices=["fawkes", "fgsm", "glaze", "nightshade"],
-                        help="Cloaking method")
+    parser.add_argument("--method", required=True,
+                        choices=["baseline", "fawkes", "fgsm", "glaze", "nightshade"],
+                        help="Cloaking method (baseline = no perturbation, control condition)")
     parser.add_argument("--epsilon", type=int, default=16, help="Perturbation budget [0-255]")
     parser.add_argument("--num_steps", type=int, default=50, help="PGD steps")
     parser.add_argument("--mode", default="mid", choices=["low", "mid", "high"],
@@ -422,7 +466,9 @@ def main():
     print(f"Input:  {input_dir}")
     print(f"Output: {output_dir}\n")
 
-    if args.method == "fawkes":
+    if args.method == "baseline":
+        metadata = apply_baseline_copy(input_dir, output_dir)
+    elif args.method == "fawkes":
         metadata = apply_fawkes_cloaking(input_dir, output_dir, mode=args.mode)
     elif args.method == "fgsm":
         metadata = apply_fgsm_cloaking(input_dir, output_dir,

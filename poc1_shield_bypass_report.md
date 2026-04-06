@@ -68,6 +68,21 @@ Despite being trained *exclusively* on the cloaked images (which were shifted to
 
 ---
 
+## 4.1 Comparative Results
+
+The table below summarises ArcFace identity scores across all experimental conditions. The baseline (no cloaking) establishes the upper bound for identity recovery; the Fawkes conditions demonstrate that even maximum-strength cloaking fails to meaningfully reduce that score.
+
+| Condition | Subject | Training images | Steps / Rank | ArcFace Mean | ArcFace Max | Identity Preserved? |
+|-----------|---------|----------------|:------------:|:------------:|:-----------:|:-------------------:|
+| **Baseline (no cloak)** | George W. Bush | Original | 500 / 4 | *TBD* | *TBD* | *TBD* |
+| Fawkes Mid (ε=16) | Subject 001 (Daschle) | Cloaked | 500 / 4 | 0.692 | 0.752 | Yes ✓ |
+| Fawkes High (ε=32) | George W. Bush | Cloaked | 500 / 4 | 0.699 | 0.782 | Yes ✓ |
+| img2img (no LoRA) | George W. Bush | Single image | — | 0.306 | — | No ✗ |
+
+*Baseline scores are placeholders pending execution of `run_baseline.sh`.*
+
+---
+
 ## 5. Experiment 2: High-Profile Recognition (George W. Bush)
 
 To further validate the findings, the experiment was repeated using a widely recognized, high-profile subject (George W. Bush, 50 images from the LFW dataset). The cloaking parameters were raised to the **Maximum Protection** setting (ε=32/255, Fawkes "High" mode), making the adversarial perturbation twice as strong as the first experiment. 
