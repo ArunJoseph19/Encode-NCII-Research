@@ -30,9 +30,13 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Must be set before any CUDA context is initialised.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import torch
 from tqdm import tqdm
@@ -130,23 +134,38 @@ def compute_gradients_sdxl(
     text_encoder_2.requires_grad_(False)
     unet.requires_grad_(True)
 
+    # Recompute activations during backward instead of storing them — trades
+    # compute for memory, essential on T4 where the UNet activations alone
+    # exceed available VRAM at full resolution.
+    unet.enable_gradient_checkpointing()
+
     param_names, params = _collect_target_params(unet, LORA_TARGET_MODULES)
     print(f"Tracking gradients for {len(params)} attention parameters "
           f"({sum(p.numel() for p in params):,} values)")
 
     torch.manual_seed(seed)
-    resolution = 512
-    latent_h = latent_w = resolution // 8
+    # Use a 32×32 latent spatial size (equivalent to a 256×256 image) rather
+    # than the full 64×64 (512×512).  Attention memory scales quadratically
+    # with sequence length, so halving each spatial dimension cuts peak
+    # activation memory by ~4× — enough to fit on a T4 with gradients enabled.
     latent_channels = unet.config.in_channels
+    latent_h = latent_w = 32
 
+    # time_ids encode (orig_h, orig_w, crop_top, crop_left, target_h, target_w)
+    # in pixel space — keep at 512 so SDXL's aesthetic conditioning is valid
+    # even though we sample smaller latents.
     add_time_ids = torch.tensor(
-        [[resolution, resolution, 0, 0, resolution, resolution]],
+        [[512, 512, 0, 0, 512, 512]],
         dtype=dtype, device=device,
     )
 
     all_grad_vectors = []
 
     for prompt in tqdm(prompts, desc="Safety gradients (SDXL)"):
+        # Free any allocator-cached blocks from the previous iteration before
+        # building the new computation graph.
+        if device == "cuda":
+            torch.cuda.empty_cache()
         _zero_grads(params)
 
         # Encode with both SDXL text encoders
