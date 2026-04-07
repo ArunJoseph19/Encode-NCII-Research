@@ -235,12 +235,23 @@ def compute_gradients_flux(
 
     print(f"\nLoading Flux: {model_id}")
     pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=dtype)
+
+    # Offload every component except the transformer to CPU immediately after
+    # loading. CLIP + T5 + VAE together occupy ~8 GB of VRAM; keeping them on
+    # GPU while computing gradients through the transformer causes OOM. Text
+    # encoders are run once per prompt in no_grad mode so CPU is fast enough.
     transformer = pipe.transformer.to(device)
-    text_encoder = pipe.text_encoder.to(device)   # CLIP
-    text_encoder_2 = pipe.text_encoder_2.to(device)  # T5
+    text_encoder = pipe.text_encoder.to("cpu")    # CLIP — encode on CPU, move result to GPU per prompt
+    text_encoder_2 = pipe.text_encoder_2.to("cpu")  # T5  — same
+    if hasattr(pipe, "vae") and pipe.vae is not None:
+        pipe.vae.to("cpu")
     tokenizer = pipe.tokenizer
     tokenizer_2 = pipe.tokenizer_2
     del pipe
+
+    if device == "cuda":
+        torch.cuda.empty_cache()
+    print(f"  Transformer on {device}; text encoders and VAE offloaded to CPU")
 
     text_encoder.requires_grad_(False)
     text_encoder_2.requires_grad_(False)
@@ -261,20 +272,21 @@ def compute_gradients_flux(
         _zero_grads(params)
 
         # Flux uses CLIP (77 tokens) + T5 (512 tokens)
+        # Tokenize on CPU (encoders live on CPU to save GPU memory)
         tok1 = tokenizer(
             prompt, padding="max_length", max_length=77,
             truncation=True, return_tensors="pt",
-        ).to(device)
+        )
         tok2 = tokenizer_2(
             prompt, padding="max_length", max_length=512,
             truncation=True, return_tensors="pt",
-        ).to(device)
+        )
 
         with torch.no_grad():
             pooled_prompt_embeds = text_encoder(
                 tok1.input_ids, output_hidden_states=False,
-            )[1]
-            prompt_embeds = text_encoder_2(tok2.input_ids)[0]
+            )[1].to(device)   # encode on CPU, move result to GPU
+            prompt_embeds = text_encoder_2(tok2.input_ids)[0].to(device)
 
         # Flux uses flow matching — timestep is a continuous value in [0, 1]
         for _ in range(num_timesteps):
