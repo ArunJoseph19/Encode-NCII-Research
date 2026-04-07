@@ -51,6 +51,7 @@ def apply_fawkes_cloaking(
     input_dir: Path,
     output_dir: Path,
     mode: str = "mid",
+    max_images: int | None = None,
 ) -> dict:
     """Apply Fawkes-equivalent adversarial cloaking using ArcFace.
 
@@ -80,12 +81,13 @@ def apply_fawkes_cloaking(
     extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
     image_paths = sorted(
         p for p in input_dir.iterdir() if p.suffix.lower() in extensions
-    )
+    )[:max_images]
     if not image_paths:
         print(f"Error: No images found in {input_dir}")
         sys.exit(1)
 
-    print(f"Found {len(image_paths)} images")
+    print(f"Found {len(image_paths)} images"
+          + (f" (capped at {max_images})" if max_images else ""))
     print(f"Fawkes mode: {mode} (epsilon={epsilon}, steps={num_steps})")
     print("-" * 60)
 
@@ -278,6 +280,7 @@ def apply_fgsm_cloaking(
     epsilon: int = 16,
     num_steps: int = 40,
     step_size: float = 2.0,
+    max_images: int | None = None,
 ) -> dict:
     """Simpler untargeted FGSM/PGD perturbation using ResNet50 features."""
     from torchvision import transforms, models
@@ -286,7 +289,7 @@ def apply_fgsm_cloaking(
     extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
     image_paths = sorted(
         p for p in input_dir.iterdir() if p.suffix.lower() in extensions
-    )
+    )[:max_images]
     if not image_paths:
         print(f"Error: No images found in {input_dir}")
         sys.exit(1)
@@ -354,7 +357,11 @@ def apply_fgsm_cloaking(
 # Baseline (no perturbation — control condition)
 # ---------------------------------------------------------------------------
 
-def apply_baseline_copy(input_dir: Path, output_dir: Path) -> dict:
+def apply_baseline_copy(
+    input_dir: Path,
+    output_dir: Path,
+    max_images: int | None = None,
+) -> dict:
     """Copy images unchanged — no perturbation applied.
 
     Provides the control condition for comparison against cloaked runs.
@@ -366,7 +373,7 @@ def apply_baseline_copy(input_dir: Path, output_dir: Path) -> dict:
 
     image_paths = sorted(
         p for p in input_dir.iterdir() if p.suffix.lower() in extensions
-    )
+    )[:max_images]
     if not image_paths:
         print(f"Error: No images found in {input_dir}")
         sys.exit(1)
@@ -453,6 +460,8 @@ def main():
     parser.add_argument("--num_steps", type=int, default=50, help="PGD steps")
     parser.add_argument("--mode", default="mid", choices=["low", "mid", "high"],
                         help="Fawkes protection level")
+    parser.add_argument("--max_images", type=int, default=None,
+                        help="Cap the number of images processed (default: all)")
     args = parser.parse_args()
 
     input_dir = Path(args.input)
@@ -467,12 +476,14 @@ def main():
     print(f"Output: {output_dir}\n")
 
     if args.method == "baseline":
-        metadata = apply_baseline_copy(input_dir, output_dir)
+        metadata = apply_baseline_copy(input_dir, output_dir, max_images=args.max_images)
     elif args.method == "fawkes":
-        metadata = apply_fawkes_cloaking(input_dir, output_dir, mode=args.mode)
+        metadata = apply_fawkes_cloaking(input_dir, output_dir, mode=args.mode,
+                                          max_images=args.max_images)
     elif args.method == "fgsm":
         metadata = apply_fgsm_cloaking(input_dir, output_dir,
-                                        epsilon=args.epsilon, num_steps=args.num_steps)
+                                        epsilon=args.epsilon, num_steps=args.num_steps,
+                                        max_images=args.max_images)
     else:
         metadata = handle_manual_cloaking(input_dir, output_dir, method=args.method)
 
