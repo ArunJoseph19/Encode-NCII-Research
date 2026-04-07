@@ -3,7 +3,7 @@
 POC 1 — Step 1: Apply adversarial cloaking to face images.
 
 Supports:
-  - 'fawkes': Fawkes-equivalent cloaking using InsightFace ArcFace.
+  - 'fawkes': Fawkes-equivalent cloaking using ArcFace (ONNX, no insightface).
     Same algorithm as Fawkes: targeted PGD against ArcFace, pushing the
     face embedding toward a synthetic decoy identity.
   - 'fgsm': Simpler untargeted perturbation using ResNet50 features.
@@ -44,7 +44,7 @@ from tqdm import tqdm
 
 
 # ---------------------------------------------------------------------------
-# Fawkes-equivalent cloaking using InsightFace ArcFace
+# Fawkes-equivalent cloaking using ONNX ArcFace (no insightface package)
 # ---------------------------------------------------------------------------
 
 def apply_fawkes_cloaking(
@@ -61,10 +61,14 @@ def apply_fawkes_cloaking(
     3. PGD perturbation to push face embedding toward the target
     4. Constrain perturbation to be visually imperceptible
 
+    Uses buffalo_l ONNX models (det_10g.onnx + w600k_r50.onnx) downloaded
+    automatically from the InsightFace CDN. No insightface package required.
+
     Modes: low (ε=8), mid (ε=16), high (ε=32)
     """
     import cv2
-    from insightface.app import FaceAnalysis
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from evaluation.arcface_wrapper import FaceAnalyzerONNX
 
     # Mode settings
     mode_cfg = {
@@ -91,12 +95,8 @@ def apply_fawkes_cloaking(
     print(f"Fawkes mode: {mode} (epsilon={epsilon}, steps={num_steps})")
     print("-" * 60)
 
-    # Initialise InsightFace (same ArcFace model Fawkes uses)
-    face_app = FaceAnalysis(
-        name="buffalo_l",
-        providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
-    )
-    face_app.prepare(ctx_id=0, det_size=(320, 320), det_thresh=0.3)
+    # Load buffalo_l ONNX models (downloaded automatically on first use)
+    face_app = FaceAnalyzerONNX(input_size=(640, 640), det_thresh=0.3)
 
     # --- Phase 1: Get original embeddings ---
     print("\nPhase 1: Extracting original face embeddings...")
@@ -258,7 +258,7 @@ def apply_fawkes_cloaking(
         "mode": mode,
         "epsilon": epsilon,
         "num_steps": num_steps,
-        "feature_extractor": "insightface/buffalo_l/ArcFace",
+        "feature_extractor": "buffalo_l/w600k_r50.onnx (ArcFace R50, onnxruntime)",
         "algorithm": "targeted_PGD_with_SPSA_gradients",
         "num_images": len(image_paths),
         "num_cloaked": cloaked_count,
