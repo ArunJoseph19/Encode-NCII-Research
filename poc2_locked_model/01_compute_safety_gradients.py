@@ -234,24 +234,24 @@ def compute_gradients_flux(
     from diffusers import FluxPipeline
 
     print(f"\nLoading Flux: {model_id}")
-    pipe = FluxPipeline.from_pretrained(model_id, torch_dtype=dtype)
+    # Load everything to CPU in fp32 first — avoids allocating GPU memory during
+    # from_pretrained, which is the most common OOM site on <40 GB GPUs.
+    pipe = FluxPipeline.from_pretrained(model_id, device_map="cpu")
 
-    # Offload every component except the transformer to CPU immediately after
-    # loading. CLIP + T5 + VAE together occupy ~8 GB of VRAM; keeping them on
-    # GPU while computing gradients through the transformer causes OOM. Text
-    # encoders are run once per prompt in no_grad mode so CPU is fast enough.
-    transformer = pipe.transformer.to(device)
-    text_encoder = pipe.text_encoder.to("cpu")    # CLIP — encode on CPU, move result to GPU per prompt
-    text_encoder_2 = pipe.text_encoder_2.to("cpu")  # T5  — same
-    if hasattr(pipe, "vae") and pipe.vae is not None:
-        pipe.vae.to("cpu")
+    # Move only the transformer to GPU in fp16. Text encoders and VAE stay on
+    # CPU: they are run once per prompt under no_grad so CPU speed is fine, and
+    # keeping them off GPU saves ~8 GB of VRAM for the gradient computation.
+    pipe.transformer = pipe.transformer.half().to(device)
+    transformer = pipe.transformer
+    text_encoder = pipe.text_encoder        # CLIP — stays on CPU
+    text_encoder_2 = pipe.text_encoder_2   # T5   — stays on CPU
     tokenizer = pipe.tokenizer
     tokenizer_2 = pipe.tokenizer_2
     del pipe
 
     if device == "cuda":
         torch.cuda.empty_cache()
-    print(f"  Transformer on {device}; text encoders and VAE offloaded to CPU")
+    print(f"  Transformer on {device} (fp16); text encoders and VAE on CPU")
 
     text_encoder.requires_grad_(False)
     text_encoder_2.requires_grad_(False)
